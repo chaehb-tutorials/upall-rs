@@ -42,14 +42,13 @@ fn main() {
     );
     println!("{}", "==========================================".cyan());
 
-    // 1. APT 업데이트
-    println!("\n{}", "[/] APT 시스템 패키지 업데이트 중...".yellow());
-    // 주입할 환경변수가 없을 때는 빈 슬라이스 참조 &[] 를 명시해야 합니다.
+    // 1. APT 업데이트 및 관리
+    println!("\n{}", "[/] 1. APT 시스템 패키지 업데이트 진행".yellow());
     if let Err(e) = run_command("sudo", &["apt", "update"], &[]) {
         eprintln!("{} {}", "적색경보: apt update 실패 ->".red(), e);
     }
 
-    // NEEDRESTART_MODE=a 환경변수를 주어 인터럽트(팝업) 방지
+    // NEEDRESTART_MODE=a 환경변수를 주어 대화형 인터럽트(팝업창) 방지
     if let Err(e) = run_command(
         "sudo",
         &["apt", "upgrade", "-y"],
@@ -58,24 +57,33 @@ fn main() {
         eprintln!("{} {}", "적색경보: apt upgrade 실패 ->".red(), e);
     }
 
-    // 안쓰는 패키지 정리
+    // 💡 [통합된 부분] 안쓰는 패키지, 설정 파일 및 이전 커널 청소 (--purge 옵션으로 잔여물 제거)
+    println!("-> 안 쓰는 패키지 및 구버전 커널 청소 중 (autoremove)");
     let _ = run_command("sudo", &["apt", "autoremove", "--purge", "-y"], &[]);
+
+    println!("-> 로컬 저장소 패키지 캐시 정리 (clean)");
     let _ = run_command("sudo", &["apt", "clean"], &[]);
 
-    // 2. MISE 업데이트
-    println!("\n{}", "[/] mise 및 설치된 도구 업데이트 중...".yellow());
+    // 2. MISE 업데이트 & 지난 버전 정리 (prune)
+    println!("\n{}", "[/] 2. mise 및 설치된 도구 업데이트 진행".yellow());
     if command_exists("mise") {
-        println!("-> mise self-update 실행");
+        println!("-> mise self-update 실행 (자체 최신화)");
         let _ = run_command("mise", &["self-update", "--yes"], &[]);
 
-        println!("-> mise 플러그인 및 도구 업그레이드");
+        println!("-> mise 플러그인 및 개발 도구 업그레이드");
         let _ = run_command("mise", &["upgrade", "--yes"], &[]);
+
+        println!("-> mise 미사용 과거 유산 버전 정리 (prune)");
+        let _ = run_command("mise", &["prune", "--yes"], &[]);
     } else {
         println!("{}", "-> 시스템에 mise가 없어 건너뜁니다.".purple());
     }
 
     // 3. RUSTUP 업데이트
-    println!("\n{}", "[/] rustup 및 Rust 툴체인 업데이트 중...".yellow());
+    println!(
+        "\n{}",
+        "[/] 3. rustup 및 Rust 툴체인 업데이트 진행".yellow()
+    );
     if command_exists("rustup") {
         let _ = run_command("rustup", &["update"], &[]);
     } else {

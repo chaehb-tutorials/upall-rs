@@ -1,30 +1,36 @@
 use colored::*;
 use std::env;
 use std::process::{Command, Stdio};
+// 💡 Add this line to bring the `t!` macro into scope
+use rust_i18n::t;
 
-/// 시스템 명령어를 실행하고 결과를 터미널에 실시간으로 출력하는 함수
+// Initialize i18n localization.
+// It looks for files in the "locales" directory and defaults to English ("en").
+rust_i18n::i18n!("locales", fallback = "en");
+
+/// Executes a system command and inherits stdout/stderr to show output in real-time.
 fn run_command(cmd: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<(), String> {
     let mut command = Command::new(cmd);
     command.args(args);
 
-    // 환경 변수 세팅 (예: NEEDRESTART_MODE)
+    // Set custom environment variables if provided (e.g., NEEDRESTART_MODE).
     for (key, val) in envs {
         command.env(key, val);
     }
 
-    // 표준 입출력을 현재 터미널에 그대로 연결
+    // Connect standard streams directly to the current terminal session.
     command.stdin(Stdio::inherit());
     command.stdout(Stdio::inherit());
     command.stderr(Stdio::inherit());
 
     match command.status() {
         Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(format!("명령어가 에러 코드를 반환했습니다: {}", status)),
-        Err(e) => Err(format!("명령어 실행 실패 (설치 여부 확인 필요): {}", e)),
+        Ok(status) => Err(format!("Command returned error code: {}", status)),
+        Err(e) => Err(format!("Command execution failed: {}", e)),
     }
 }
 
-/// 특정 명령어가 시스템에 설치되어 있는지 확인하는 함수
+/// Checks if a specific command-line tool is installed on the system.
 fn command_exists(cmd: &str) -> bool {
     Command::new("which")
         .arg(cmd)
@@ -36,76 +42,81 @@ fn command_exists(cmd: &str) -> bool {
 }
 
 fn main() {
-    // 💡 [새로 추가된 로직] 실행 인자(Argument) 확인
+    // Detect system locale from the LANG environment variable.
+    // Example: extracts "ko" from "ko_KR.UTF-8". Defaults to "en" if missing or unrecognized.
+    let sys_lang = env::var("LANG").unwrap_or_else(|_| "en".to_string());
+    if sys_lang.starts_with("ko") {
+        rust_i18n::set_locale("ko");
+    } else {
+        rust_i18n::set_locale("en");
+    }
+
+    // Check command-line arguments for version flags.
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
         let arg = &args[1];
-        // --version, -version, -V, v, version 등 유연하게 대응
+        // Support flexible version flag patterns: --version, -version, -V, version, -v, etc.
         if arg == "--version" || arg == "-version" || arg == "-V" || arg == "version" || arg == "-v"
         {
-            // env!("CARGO_PKG_VERSION")은 빌드 시점의 Cargo.toml 버전 숫자를 문자열로 가져옵니다.
+            // env!("CARGO_PKG_VERSION") fetches the version string defined in Cargo.toml at compile time.
             println!("upall version {}", env!("CARGO_PKG_VERSION").green().bold());
-            return; // 버전을 출력했으므로 업데이트를 진행하지 않고 즉시 프로그램 종료
+            return; // Terminate early after printing the version to bypass system updates.
         }
     }
 
     println!("{}", "==========================================".cyan());
-    println!(
-        "{}",
-        "    Rust 기반 통합 시스템 업데이트 시작     ".bold().cyan()
-    );
+    println!("    {}     ", t!("start_msg").bold().cyan());
     println!("{}", "==========================================".cyan());
 
-    // 1. APT 업데이트 및 관리
-    println!("\n{}", "[/] 1. APT 시스템 패키지 업데이트 진행".yellow());
+    // 1. APT Package Manager Updates and Cleanup
+    println!("\n{}", t!("apt_start").yellow());
     if let Err(e) = run_command("sudo", &["apt", "update"], &[]) {
-        eprintln!("{} {}", "적색경보: apt update 실패 ->".red(), e);
+        eprintln!("{} {}", "Error: apt update failed ->".red(), e);
     }
 
+    // Inject NEEDRESTART_MODE=a to prevent the interactive purple prompt dialog.
     if let Err(e) = run_command(
         "sudo",
         &["apt", "upgrade", "-y"],
         &[("NEEDRESTART_MODE", "a")],
     ) {
-        eprintln!("{} {}", "적색경보: apt upgrade 실패 ->".red(), e);
+        eprintln!("{} {}", "Error: apt upgrade failed ->".red(), e);
     }
 
-    println!("-> 안 쓰는 패키지 및 구버전 커널 청소 중 (autoremove)");
+    // Clean up unused packages and old Linux kernel revisions (--purge removes configuration remnants).
+    println!("{}", t!("apt_clean"));
     let _ = run_command("sudo", &["apt", "autoremove", "--purge", "-y"], &[]);
 
-    println!("-> 로컬 저장소 패키지 캐시 정리 (clean)");
+    // Flush local repository package caches to reclaim additional drive space.
+    println!("{}", t!("apt_cache"));
     let _ = run_command("sudo", &["apt", "clean"], &[]);
 
-    // 2. MISE 업데이트 & 지난 버전 정리 (prune)
-    println!("\n{}", "[/] 2. mise 및 설치된 도구 업데이트 진행".yellow());
+    // 2. MISE Development Tool Runtime Updates & Pruning
+    println!("\n{}", t!("mise_start").yellow());
     if command_exists("mise") {
-        println!("-> mise self-update 실행 (자체 최신화)");
+        println!("{}", t!("mise_self"));
         let _ = run_command("mise", &["self-update", "--yes"], &[]);
 
-        println!("-> mise 플러그인 및 개발 도구 업그레이드");
+        println!("{}", t!("mise_upgrade"));
         let _ = run_command("mise", &["upgrade", "--yes"], &[]);
 
-        println!("-> mise 미사용 과거 유산 버전 정리 (prune)");
+        // Erase old historical runtime versions that are no longer referenced in configuration blocks.
+        println!("{}", t!("mise_prune"));
         let _ = run_command("mise", &["prune", "--yes"], &[]);
     } else {
-        println!("{}", "-> 시스템에 mise가 없어 건너뜁니다.".purple());
+        // Variable interpolation translates to proper localized text placeholders.
+        println!("{}", t!("no_command", cmd = "mise").purple());
     }
 
-    // 3. RUSTUP 업데이트
-    println!(
-        "\n{}",
-        "[/] 3. rustup 및 Rust 툴체인 업데이트 진행".yellow()
-    );
+    // 3. RUSTUP Toolchain and Compiler Architecture Updates
+    println!("\n{}", t!("rust_start").yellow());
     if command_exists("rustup") {
         let _ = run_command("rustup", &["update"], &[]);
     } else {
-        println!("{}", "-> 시스템에 rustup이 없어 건너뜁니다.".purple());
+        println!("{}", t!("no_command", cmd = "rustup").purple());
     }
 
     println!("\n{}", "==========================================".green());
-    println!(
-        "{}",
-        "     모든 업데이트가 완료되었습니다!      ".bold().green()
-    );
+    println!("     {}      ", t!("end_msg").bold().green());
     println!("{}", "==========================================".green());
 }

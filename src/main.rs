@@ -1,4 +1,5 @@
 use colored::*;
+use std::env;
 use std::process::{Command, Stdio};
 
 /// 시스템 명령어를 실행하고 결과를 터미널에 실시간으로 출력하는 함수
@@ -35,6 +36,19 @@ fn command_exists(cmd: &str) -> bool {
 }
 
 fn main() {
+    // 💡 [새로 추가된 로직] 실행 인자(Argument) 확인
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        let arg = &args[1];
+        // --version, -version, -V, v, version 등 유연하게 대응
+        if arg == "--version" || arg == "-version" || arg == "-V" || arg == "version" || arg == "-v"
+        {
+            // env!("CARGO_PKG_VERSION")은 빌드 시점의 Cargo.toml 버전 숫자를 문자열로 가져옵니다.
+            println!("upall version {}", env!("CARGO_PKG_VERSION").green().bold());
+            return; // 버전을 출력했으므로 업데이트를 진행하지 않고 즉시 프로그램 종료
+        }
+    }
+
     println!("{}", "==========================================".cyan());
     println!(
         "{}",
@@ -48,7 +62,6 @@ fn main() {
         eprintln!("{} {}", "적색경보: apt update 실패 ->".red(), e);
     }
 
-    // NEEDRESTART_MODE=a 환경변수를 주어 대화형 인터럽트(팝업창) 방지
     if let Err(e) = run_command(
         "sudo",
         &["apt", "upgrade", "-y"],
@@ -57,7 +70,6 @@ fn main() {
         eprintln!("{} {}", "적색경보: apt upgrade 실패 ->".red(), e);
     }
 
-    // 💡 [통합된 부분] 안쓰는 패키지, 설정 파일 및 이전 커널 청소 (--purge 옵션으로 잔여물 제거)
     println!("-> 안 쓰는 패키지 및 구버전 커널 청소 중 (autoremove)");
     let _ = run_command("sudo", &["apt", "autoremove", "--purge", "-y"], &[]);
 
